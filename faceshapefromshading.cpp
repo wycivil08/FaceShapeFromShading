@@ -9,8 +9,14 @@
 #include <QOpenGLFramebufferObject>
 #include <QOffscreenSurface>
 #include <QFile>
-
+#if defined(__APPLE__) && defined(__MACH__)
+  /* Apple OSX and iOS (Darwin). ------------------------------ */
+#include "OpenGL/gl.h"
+#include "OpenGL/glu.h"
+#elif 
 #include <GL/freeglut_std.h>
+#endif
+
 #include "glm/glm.hpp"
 #include "gli/gli.hpp"
 

@@ -44,34 +44,44 @@ if (GLEW_FOUND)
 endif()
 
 # GLI
-find_package(GLI REQUIRED)
-if (GLI_FOUND)
-    message([] ${GLI_INCLUDE_DIRS})
-    include_directories(${GLI_INCLUDE_DIRS})
-endif()
+#find_package(GLI REQUIRED)
+#if (GLI_FOUND)
+#   message([] ${GLI_INCLUDE_DIRS})
+#    include_directories(${GLI_INCLUDE_DIRS})
+#endif()
+include_directories(/Users/kevin/SDKs/gli)
 
 # Eigen
-set(EIGEN_INCLUDE_DIR /usr/include/eigen3)
+set(EIGEN_INCLUDE_DIR /usr/local/include/eigen3)
 include_directories(${EIGEN_INCLUDE_DIR})
 
 # MKL
-set(MKL_INCLUDE_DIRS "/home/phg/SDKs/intel/composer_xe/include")
+#set(MKL_INCLUDE_DIRS "/home/phg/SDKs/intel/composer_xe/include")
+set(MKL_INCLUDE_DIRS "/opt/intel/composer_xe_2013_sp1.4.201/mkl/include")
 message([] ${MKL_INCLUDE_DIRS} )
 include_directories(${MKL_INCLUDE_DIRS})
-set(MKLROOT "/home/phg/SDKs/intel/composer_xe_2015/mkl")
-set(MKLLIBS_DIRS "${MKLROOT}/lib/intel64/")
+#set(MKLROOT "/home/phg/SDKs/intel/composer_xe_2015/mkl")
+set(MKLROOT "/opt/intel/composer_xe_2013_sp1.4.201/mkl")
+
+#set(MKLLIBS_DIRS "${MKLROOT}/lib/intel64/")
+set(MKLLIBS_DIRS "${MKLROOT}/lib")
 link_directories(${MKLLIBS_DIRS})
 set(MKLLIBS "-Wl,--start-group -lmkl_intel_lp64 -lmkl_core -lmkl_intel_thread -Wl,--end-group -liomp5 -ldl -lpthread -lm")
 
 # PhGLib
-include_directories("/home/phg/SDKs/PhGLib/include")
-link_directories("/home/phg/SDKs/PhGLib/lib")
+#include_directories("/home/phg/SDKs/PhGLib/include")
+#link_directories("/home/phg/SDKs/PhGLib/lib")
+include_directories("/Users/kevin/SDKs/PhGLib/include")
+link_directories("/Users/kevin/SDKs/PhGLib/lib")
 set(PhGLib "-lPhGLib")
 
 # Qt5
 find_package(Qt5Core)
 find_package(Qt5Widgets)
 find_package(Qt5OpenGL)
+include_directories(/usr/local/Cellar/qt5/5.5.1_2/lib/cmake/Qt5OpenGL)
+include_directories(/usr/local/Cellar/qt5/5.5.1_2/lib/cmake/Qt5Widgets)
+include_directories(/usr/local/Cellar/qt5/5.5.1_2/lib/cmake/Qt5Core)
 
 # Ceres solver
 find_package(Ceres REQUIRED)
