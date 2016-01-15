@@ -1,4 +1,9 @@
 build/
 .idea/
+<<<<<<< HEAD
 Makefile/
 *.cmake/
+=======
+Makefile
+*.cmake
+>>>>>>> e490a57eaf7998dfe9f9f3b7fd79c8c21d154087
