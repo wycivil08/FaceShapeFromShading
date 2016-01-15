@@ -26,7 +26,7 @@ include_directories(${Boost_INCLUDE_DIRS})
 link_libraries(${Boost_LIBRARIES} -lboost_filesystem -lboost_system)
 
 # OpenMP
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fopenmp")
+#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fopenmp")
 
 # OpenGL
 find_package(OpenGL REQUIRED)
@@ -61,7 +61,7 @@ set(MKLLIBS "-Wl,--start-group -lmkl_intel_lp64 -lmkl_core -lmkl_intel_thread -W
 #include_directories("/home/phg/SDKs/PhGLib/include")
 #link_directories("/home/phg/SDKs/PhGLib/lib")
 include_directories("/Users/kevin/SDKs/PhGLib/include")
-link_directories("/Users/kevin/SDKs/PhGLib/lib")
+link_directories("/Users/kevin/SDKs/PhGLib")
 set(PhGLib "-lPhGLib")
 
 # Qt5

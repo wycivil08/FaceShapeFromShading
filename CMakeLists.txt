@@ -26,7 +26,7 @@ include_directories(${Boost_INCLUDE_DIRS})
 link_libraries(${Boost_LIBRARIES} -lboost_filesystem -lboost_system)
 
 # OpenMP
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fopenmp")
+#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fopenmp")
 
 find_package( OpenCV REQUIRED )
 link_libraries(${OpenCV_LIBS})
@@ -66,13 +66,13 @@ set(MKLROOT "/opt/intel/composer_xe_2013_sp1.4.201/mkl")
 #set(MKLLIBS_DIRS "${MKLROOT}/lib/intel64/")
 set(MKLLIBS_DIRS "${MKLROOT}/lib")
 link_directories(${MKLLIBS_DIRS})
-set(MKLLIBS "-Wl,--start-group -lmkl_intel_lp64 -lmkl_core -lmkl_intel_thread -Wl,--end-group -liomp5 -ldl -lpthread -lm")
+set(MKLLIBS "-Wl, -lmkl_intel_lp64 -lmkl_core -lmkl_intel_thread -Wl, -liomp5 -ldl -lpthread -lm")
 
 # PhGLib
 #include_directories("/home/phg/SDKs/PhGLib/include")
 #link_directories("/home/phg/SDKs/PhGLib/lib")
 include_directories("/Users/kevin/SDKs/PhGLib/include")
-link_directories("/Users/kevin/SDKs/PhGLib/lib")
+link_directories("/Users/kevin/SDKs/PhGLib/")
 set(PhGLib "-lPhGLib")
 
 # Qt5
