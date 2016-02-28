@@ -4,48 +4,38 @@
 #include <common.h>
 
 #include "ceres/ceres.h"
+#include "utils.h"
 
 struct NormalMapDataTerm {
   NormalMapDataTerm(double Ir, double Ig, double Ib,
                     double ar, double ag, double ab,
                     const VectorXd& lighting_coeffs,
                     double weight = 1.0)
-    : cons_idx(cons_idx), Ir(Ir), Ig(Ig), Ib(Ib), ar(ar), ag(ag), ab(ab),
+    : I(Vector3d(Ir, Ig, Ib)), a(Vector3d(ar, ag, ab)),
       lighting_coeffs(lighting_coeffs), weight(weight) {}
 
   ~NormalMapDataTerm() {}
 
   bool operator()(double const * const * parameters, double *residuals) const {
-    const int num_dof = 9;
-
     double theta = parameters[0][0], phi = parameters[1][0];
 
-    // nx = cos(theta)
-    // ny = sin(theta) * cos(phi)
-    // nz = sin(theta) * sin(phi)
+    double nx, ny, nz;
+    tie(nx, ny, nz) = sphericalcoords2normal<double>(theta, phi);
 
-    double nx = cos(theta);
-    double ny = sin(theta) * cos(phi);
-    double nz = sin(theta) * sin(phi);
-
-    VectorXd Y(num_dof);
-    Y(0) = 1;
-    Y(1) = nx; Y(2) = ny; Y(3) = nz;
-    Y(4) = nx * ny; Y(5) = nx * nz; Y(6) = ny * nz;
-    Y(7) = nx * nx - ny * ny;
-    Y(8) = 3.0 * nz * nz - 1.0;
+    VectorXd Y = sphericalharmonics(nx, ny, nz);
 
     double LdotY = lighting_coeffs.transpose() * Y;
 
-    residuals[0] = (Ir - ar * LdotY) * weight;
-    residuals[1] = (Ig - ag * LdotY) * weight;
-    residuals[2] = (Ib - ab * LdotY) * weight;
+    Vector3d f = I - a * LdotY;
+
+    residuals[0] = f[0] * weight;
+    residuals[1] = f[1] * weight;
+    residuals[2] = f[2] * weight;
 
     return true;
   }
 
-  int cons_idx;
-  double Ir, Ig, Ib, ar, ag, ab;
+  Vector3d I, a;
   VectorXd lighting_coeffs;
   double weight;
 };
@@ -53,8 +43,9 @@ struct NormalMapDataTerm {
 struct NormalMapDataTerm_analytic : public ceres::CostFunction {
   NormalMapDataTerm_analytic(double Ir, double Ig, double Ib,
                              double ar, double ag, double ab,
-                             const VectorXd& lighting_coeffs)
-    : Ir(Ir), Ig(Ig), Ib(Ib), ar(ar), ag(ag), ab(ab), lighting_coeffs(lighting_coeffs) {
+                             const VectorXd& lighting_coeffs,
+                             double weight = 1.0)
+    : I(Vector3d(Ir, Ig, Ib)), a(Vector3d(ar, ag, ab)), lighting_coeffs(lighting_coeffs), weight(weight) {
 
     mutable_parameter_block_sizes()->clear();
     mutable_parameter_block_sizes()->push_back(1);
@@ -62,108 +53,58 @@ struct NormalMapDataTerm_analytic : public ceres::CostFunction {
     set_num_residuals(3);
   }
 
-  VectorXd computeY(double theta, double phi) const {
-    double sinTheta = sin(theta), cosTheta = cos(theta);
-    double sinPhi = sin(phi), cosPhi = cos(phi);
-
-    double nz = cosTheta * sinPhi;
-    double nx = sinTheta * sinPhi;
-    double ny = cosPhi;
-
-    const int num_dof = 9;
-    VectorXd Y(num_dof);
-    Y(0) = 1;
-    Y(1) = nx; Y(2) = ny; Y(3) = nz;
-    Y(4) = nx * ny; Y(5) = nx * nz; Y(6) = ny * nz;
-    Y(7) = nx * nx - ny * ny;
-    Y(8) = 3.0 * nz * nz - 1.0;
-    return Y;
-  }
-
   virtual bool Evaluate(double const *const *parameters,
                         double *residuals,
-                        double **jacobians) const {
+                        double **jacobians) const
+  {
     const int num_dof = 9;
 
     double theta = parameters[0][0], phi = parameters[1][0];
-    double sinTheta = sin(theta), cosTheta = cos(theta);
-    double sinPhi = sin(phi), cosPhi = cos(phi);
 
-    double nz = cosTheta * sinPhi;
-    double nx = sinTheta * sinPhi;
-    double ny = cosPhi;
+    double cosTheta = cos(theta), sinTheta = sin(theta);
+    double cosPhi = cos(phi), sinPhi = sin(phi);
 
-    VectorXd Y(num_dof);
-    Y(0) = 1;
-    Y(1) = nx; Y(2) = ny; Y(3) = nz;
-    Y(4) = nx * ny; Y(5) = nx * nz; Y(6) = ny * nz;
-    Y(7) = nx * nx - ny * ny;
-    Y(8) = 3.0 * nz * nz - 1.0;
+    double nx, ny, nz;
+    tie(nx, ny, nz) = sphericalcoords2normal<double>(theta, phi);
+
+    VectorXd Y = sphericalharmonics(nx, ny, nz);
 
     double LdotY = lighting_coeffs.transpose() * Y;
 
-    residuals[0] = Ir - ar * LdotY;
-    residuals[1] = Ig - ag * LdotY;
-    residuals[2] = Ib - ab * LdotY;
+    Vector3d f = I - a * LdotY;
+
+    residuals[0] = f[0] * weight;
+    residuals[1] = f[1] * weight;
+    residuals[2] = f[2] * weight;
 
     if (jacobians != NULL) {
       assert(jacobians[0] != NULL);
       assert(jacobians[1] != NULL);
 
-#if 1
-      VectorXd dYdtheta(num_dof);
+      MatrixXd dYdnormal = dY_dnormal(nx, ny, nz);
 
-      double sin2Theta = sin(2 * theta);
-      double cos2Theta = cos(2 * theta);
-
-      dYdtheta(0) = 0;
-      dYdtheta(1) = cosTheta * sinPhi;
-      dYdtheta(2) = 0;
-      dYdtheta(3) = -sinTheta * sinPhi;
-      dYdtheta(4) = cosTheta * sinPhi * cosPhi;
-      dYdtheta(5) = cos2Theta * sinPhi * sinPhi;
-      dYdtheta(6) = -sinTheta * sinPhi * cosPhi;
-      dYdtheta(7) = sin2Theta * sinPhi * sinPhi;
-      dYdtheta(8) = -3 * sin2Theta * sinPhi * sinPhi;
-
-      VectorXd dYdphi(num_dof);
-
-      double sin2Phi = sin(2 * phi);
-      double cos2Phi = cos(2 * phi);
-
-      dYdphi(0) = 0;
-      dYdphi(1) = sinTheta * cosPhi;
-      dYdphi(2) = -sinPhi;
-      dYdphi(3) = cosTheta * cosPhi;
-      dYdphi(4) = sinTheta * cos2Phi;
-      dYdphi(5) = sinTheta * cosTheta * sin2Phi;
-      dYdphi(6) = cosTheta * cos2Phi;
-      dYdphi(7) = (sinTheta * sinTheta + 1) * sin2Phi;
-      dYdphi(8) = 3 * cosTheta * cosTheta * sin2Phi;
-#else
-      const double eps = 1e-6;
-      VectorXd dYdtheta = ((computeY(theta+eps, phi) - Y)/eps).eval();
-      VectorXd dYdphi = ((computeY(theta, phi+eps) - Y)/eps).eval();
-#endif
+      VectorXd dYdtheta = dYdnormal * dnormal_dtheta(theta, phi);
+      VectorXd dYdphi = dYdnormal * dnormal_dphi(theta, phi);
 
       double LdotdYdtheta = lighting_coeffs.transpose() * dYdtheta;
       double LdotdYdphi = lighting_coeffs.transpose() * dYdphi;
 
-      // jacobians[i][0] = \frac{\partial E}{\partial \theta}
-      jacobians[0][0] = -ar * LdotdYdtheta;
-      jacobians[0][1] = -ag * LdotdYdtheta;
-      jacobians[0][2] = -ab * LdotdYdtheta;
+      // jacobians[0][i] = \frac{\partial E}{\partial \theta}
+      jacobians[0][0] = -a[0] * LdotdYdtheta * weight;
+      jacobians[0][1] = -a[1] * LdotdYdtheta * weight;
+      jacobians[0][2] = -a[2] * LdotdYdtheta * weight;
 
-      // jacobians[i][1] = \frac{\partial E}{\partial \phi}
-      jacobians[1][0] = -ar * LdotdYdphi;
-      jacobians[1][1] = -ag * LdotdYdphi;
-      jacobians[1][2] = -ab * LdotdYdphi;
+      // jacobians[1][i] = \frac{\partial E}{\partial \phi}
+      jacobians[1][0] = -a[0] * LdotdYdphi * weight;
+      jacobians[1][1] = -a[1] * LdotdYdphi * weight;
+      jacobians[1][2] = -a[2] * LdotdYdphi * weight;
     }
     return true;
   }
 
-  double Ir, Ig, Ib, ar, ag, ab;
+  Vector3d I, a;
   VectorXd lighting_coeffs;
+  double weight;
 };
 
 struct NormalMapIntegrabilityTerm {
@@ -188,44 +129,29 @@ struct NormalMapIntegrabilityTerm {
     double theta_l = parameters[2][0], phi_l = parameters[3][0];
     double theta_u = parameters[4][0], phi_u = parameters[5][0];
 
-    // nx = cos(theta)
-    // ny = sin(theta) * cos(phi)
-    // nz = sin(theta) * sin(phi)
+    double nx, ny, nz;
+    tie(nx, ny, nz) = sphericalcoords2normal<double>(theta, phi);
 
-    double nx = cos(theta);
-    double ny = sin(theta) * cos(phi);
-    double nz = sin(theta) * sin(phi);
+    double nx_l, ny_l, nz_l;
+    tie(nx_l, ny_l, nz_l) = sphericalcoords2normal<double>(theta_l, phi_l);
 
-    double nx_l = cos(theta_l);
-    double ny_l = sin(theta_l) * cos(phi_l);
-    double nz_l = sin(theta_l) * sin(phi_l);
+    double nx_u, ny_u, nz_u;
+    tie(nx_u, ny_u, nz_u) = sphericalcoords2normal<double>(theta_u, phi_u);
 
-    double nx_u = cos(theta_u);
-    double ny_u = sin(theta_u) * cos(phi_u);
-    double nz_u = sin(theta_u) * sin(phi_u);
+    if(weight == 0) {
+      residuals[0] = 0;
+    } else {
+      nz = round_off(nz, 1e-16);
+      nz_l = round_off(nz_l, 1e-16);
+      nz_u = round_off(nz_u, 1e-16);
 
-#if 1
-    if(weight == 0) residuals[0] = 0;
-    else {
       double nxnz = nx / nz;
-      double nynz = ny / nz;
       double nxnz_u = nx_u / nz_u;
+      double nynz = ny / nz;
       double nynz_l = ny_l / nz_l;
 
-      residuals[0] = (nxnz_u - nxnz - (nynz - nynz_l)) * weight;
+      residuals[0] = ((nxnz_u - nxnz) - (nynz - nynz_l)) * weight;
     }
-#else
-    Vector3d n(nx, ny, nz);
-    Vector3d nu(nx_u, ny_u, nz_u);
-    Vector3d nl(nx_l, ny_l, nz_l);
-    Vector3d dndy = nu - n;
-    Vector3d dndx = n - nl;
-
-    double nz2 = nz * nz + 1e-16;
-
-    const Vector3d xvec(1, 0, 0), yvec(0, 1, 0);
-    residuals[0] = n.dot(dndy.cross(yvec)+dndx.cross(xvec)) / nz2 * weight;
-#endif
 
     return true;
   }
@@ -234,14 +160,113 @@ struct NormalMapIntegrabilityTerm {
   double weight;
 };
 
-// @FIXME Need to derive the Jacbians for the updated error formula
 struct NormalMapIntegrabilityTerm_analytic : public ceres::CostFunction {
-  NormalMapIntegrabilityTerm_analytic(double weight) : weight(weight) {
+  NormalMapIntegrabilityTerm_analytic(double dx, double dy, double weight) : dx(dx), dy(dy), weight(weight) {
     mutable_parameter_block_sizes()->clear();
     for(int param_i=0;param_i<6;++param_i)
       mutable_parameter_block_sizes()->push_back(1);
     set_num_residuals(1);
   }
+
+  double round_off(double val, double eps) const {
+    if(fabs(val) < eps) {
+      if(val < 0) return -eps;
+      else return eps;
+    } else return val;
+  }
+
+  virtual bool Evaluate(double const *const *parameters,
+                        double *residuals,
+                        double **jacobians) const
+  {
+    double theta = parameters[0][0], phi = parameters[1][0];
+    double theta_l = parameters[2][0], phi_l = parameters[3][0];
+    double theta_u = parameters[4][0], phi_u = parameters[5][0];
+
+    double nx, ny, nz;
+    tie(nx, ny, nz) = sphericalcoords2normal<double>(theta, phi);
+
+    double nx_l, ny_l, nz_l;
+    tie(nx_l, ny_l, nz_l) = sphericalcoords2normal<double>(theta_l, phi_l);
+
+    double nx_u, ny_u, nz_u;
+    tie(nx_u, ny_u, nz_u) = sphericalcoords2normal<double>(theta_u, phi_u);
+
+    if(weight == 0) {
+      residuals[0] = 0;
+      if(jacobians != NULL) {
+        for(int param_i=0;param_i<6;++param_i) {
+          if(jacobians[param_i] != NULL) jacobians[param_i][0] = 0;
+        }
+      }
+    } else {
+      nz = round_off(nz, 1e-16);
+      nz_l = round_off(nz_l, 1e-16);
+      nz_u = round_off(nz_u, 1e-16);
+
+      double nxnz = nx / nz;
+      double nxnz_u = nx_u / nz_u;
+      double nynz = ny / nz;
+      double nynz_l = ny_l / nz_l;
+
+      residuals[0] = ((nxnz_u - nxnz) - (nynz - nynz_l)) * weight;
+
+      if(jacobians != NULL) {
+        for(int param_i=0;param_i<6;++param_i) assert(jacobians[param_i] != NULL);
+
+        {
+          double nz2 = nz * nz + 1e-16;
+
+          Vector3d dE_dn(-nz / nz2, -nz / nz2, (nx + ny) / nz2);
+
+          Vector3d dn_dtheta = dnormal_dtheta(theta, phi);
+          // jacobians[0][0] = \frac{\partial E}{\partial \theta}
+          jacobians[0][0] = dE_dn.dot(dn_dtheta) * weight;
+
+          Vector3d dn_dphi = dnormal_dphi(theta, phi);
+          // jacobians[1][0] = \frac{\partial E}{\partial \phi}
+          jacobians[1][0] = dE_dn.dot(dn_dphi) * weight;
+        }
+
+        {
+          double nz_l2 = nz_l * nz_l + 1e-16;
+
+          Vector3d dE_dn(0, nz_l / nz_l2, -ny_l / nz_l2);
+
+          Vector3d dn_dtheta = dnormal_dtheta(theta_l, phi_l);
+          // jacobians[2][0] = \frac{\partial E}{\partial \theta_l}
+          jacobians[2][0] = dE_dn.dot(dn_dtheta) * weight;
+
+          Vector3d dn_dphi = dnormal_dphi(theta_l, phi_l);
+          // jacobians[3][0] = \frac{\partial E}{\partial \phi_l}
+          jacobians[3][0] = dE_dn.dot(dn_dphi) * weight;
+        }
+
+        {
+          double nz_u2 = nz_u * nz_u + 1e-16;
+
+          Vector3d dE_dn(nz_u / nz_u2, 0, -nx_u / nz_u2);
+
+          Vector3d dn_dtheta = dnormal_dtheta(theta_u, phi_u);
+          // jacobians[4][0] = \frac{\partial E}{\partial \theta_u}
+          jacobians[4][0] = dE_dn.dot(dn_dtheta)  * weight;
+
+          Vector3d dn_dphi = dnormal_dphi(theta_u, phi_u);
+          // jacobians[5][0] = \frac{\partial E}{\partial \phi_u}
+          jacobians[5][0] = dE_dn.dot(dn_dphi) * weight;
+        }
+      }
+    }
+
+    return true;
+  }
+
+  double dx, dy;
+  double weight;
+};
+
+struct NormalMapSmoothnessTerm {
+  NormalMapSmoothnessTerm(double dx, double dy, double weight) : dx(dx), dy(dy), weight(weight) {}
 
   double safe_division(double numer, double denom, double eps) const {
     if(fabs(denom) < eps) {
@@ -250,75 +275,50 @@ struct NormalMapIntegrabilityTerm_analytic : public ceres::CostFunction {
     return numer / denom;
   }
 
-  virtual bool Evaluate(double const *const *parameters,
-                        double *residuals,
-                        double **jacobians) const {
+  double round_off(double val, double eps) const {
+    if(fabs(val) < eps) {
+      if(val < 0) return -eps;
+      else return eps;
+    } else return val;
+  }
+
+  bool operator()(double const * const * parameters, double *residuals) const {
     double theta = parameters[0][0], phi = parameters[1][0];
     double theta_l = parameters[2][0], phi_l = parameters[3][0];
     double theta_u = parameters[4][0], phi_u = parameters[5][0];
 
-    double nz = cos(theta) * sin(phi);
-    double nx = sin(theta) * sin(phi);
-    double ny = cos(phi);
+    double nx, ny, nz;
+    tie(nx, ny, nz) = sphericalcoords2normal<double>(theta, phi);
 
-    double nz_l = cos(theta_l) * sin(phi_l);
-    double nx_l = sin(theta_l) * sin(phi_l);
-    double ny_l = cos(phi_l);
+    double nx_l, ny_l, nz_l;
+    tie(nx_l, ny_l, nz_l) = sphericalcoords2normal<double>(theta_l, phi_l);
 
-    double nz_u = cos(theta_u) * sin(phi_u);
-    double nx_u = sin(theta_u) * sin(phi_u);
-    double ny_u = cos(phi_u);
+    double nx_u, ny_u, nz_u;
+    tie(nx_u, ny_u, nz_u) = sphericalcoords2normal<double>(theta_u, phi_u);
 
-    const double epsilon = 1e-5;
-#if 0
-    double nxnz = safe_division(nx, nz, epsilon);
-    double nynz = safe_division(ny, nz, epsilon);
+    if(weight == 0) {
+      residuals[0] = 0;
+      residuals[1] = 0;
+      residuals[2] = 0;
+      residuals[3] = 0;
+    } else {
+      nz = round_off(nz, 1e-16);
+      nz_l = round_off(nz_l, 1e-16);
+      nz_u = round_off(nz_u, 1e-16);
 
-    double nynz_l = safe_division(ny_l, nz_l, epsilon);
-    double nxnz_u = safe_division(nx_u, nz_u, epsilon);
-
-    residuals[0] = ((nxnz_u - nxnz) - (nynz - nynz_l)) * 0.5 * weight;
-#else
-    Vector3d n(nx, ny, nz);
-    Vector3d nu(nx_u, ny_u, nz_u);
-    Vector3d nl(nx_l, ny_l, nz_l);
-    Vector3d dndy = nu - n;
-    Vector3d dndx = n - nl;
-
-    if(fabs(nz) < 1e-3) {
-      nz = (nz < 0)?-1e-3:1e-3;
+      residuals[0] = (nx_u * nz - nx * nz_u) * weight;
+      residuals[1] = (ny_u * nz - ny * nz_u) * weight;
+      residuals[2] = (nx_l * nz - nx * nz_l) * weight;
+      residuals[3] = (ny_l * nz - ny * nz_l) * weight;
     }
-    double nz2 = (nz * nz + 1e-5);
 
-    const Vector3d xvec(1, 0, 0), yvec(0, 1, 0);
-    residuals[0] = -n.dot(dndy.cross(yvec)+dndx.cross(xvec)) / nz2 * 0.5 * weight;
-#endif
-
-    if (jacobians != NULL) {
-      for(int param_i=0;param_i<6;++param_i) assert(jacobians[0] != NULL);
-
-      // @FIXME the jacobians below are incorrect
-
-      // jacobians[0][0] = \frac{\partial E}{\partial \theta}
-      jacobians[0][0] = -safe_division(1 + sin(theta) * cos(phi), cos(theta) * cos(theta) * sin(phi), epsilon) * weight * 0.5;
-      // jacobians[1][0] = \frac{\partial E}{\partial \phi}
-      jacobians[1][0] = safe_division(1, cos(theta) * sin(phi) * sin(phi), epsilon) * weight * 0.5;
-
-      // jacobians[2][0] = \frac{\partial E}{\partial \theta_l}
-      jacobians[2][0] = safe_division(sin(theta_l) * cos(phi_l), cos(theta_l) * cos(theta_l) * sin(phi_l), epsilon) * weight * 0.5;
-      // jacobians[3][0] = \frac{\partial E}{\partial \phi_l}
-      jacobians[3][0] = safe_division(1, cos(theta_l) * sin(phi_l) * sin(phi_l), epsilon) * weight * 0.5;
-
-      // jacobians[4][0] = \frac{\partial E}{\partial \theta_u}
-      jacobians[4][0] = safe_division(1, cos(theta_u) * cos(theta_u), epsilon) * weight * 0.5;
-      // jacobians[5][0] = \frac{\partial E}{\partial \phi_u}
-      jacobians[5][0] = 0;
-    }
     return true;
   }
 
+  double dx, dy;
   double weight;
 };
+
 
 struct NormalMapRegularizationTerm {
   NormalMapRegularizationTerm(const vector<pair<int, double>>& info,
@@ -335,9 +335,8 @@ struct NormalMapRegularizationTerm {
 
       double theta = parameters[i*2][0], phi = parameters[i*2+1][0];
 
-      double nx = sin(theta) * sin(phi);
-      double ny = cos(phi);
-      double nz = cos(theta) * sin(phi);
+      double nx, ny, nz;
+      tie(nx, ny, nz) = sphericalcoords2normal<double>(theta, phi);
 
       normal_LoG += Vector3d(nx, ny, nz) * kval;
     }
@@ -375,9 +374,8 @@ struct NormalMapRegularizationTerm_analytic : public ceres::CostFunction {
 
       double theta = parameters[i*2][0], phi = parameters[i*2+1][0];
 
-      double nx = sin(theta) * sin(phi);
-      double ny = cos(phi);
-      double nz = cos(theta) * sin(phi);
+      double nx, ny, nz;
+      tie(nx, ny, nz) = sphericalcoords2normal<double>(theta, phi);
 
       normal_LoG += Vector3d(nx, ny, nz) * kval;
     }
@@ -393,13 +391,19 @@ struct NormalMapRegularizationTerm_analytic : public ceres::CostFunction {
         double w = info[i].second;
         double theta = parameters[i*2][0], phi = parameters[i*2+1][0];
 
-        jacobians[i*2][0] = w * cos(theta) * sin(phi) * weight;
-        jacobians[i*2][1] = 0;
-        jacobians[i*2][2] = - w * sin(theta) * sin(phi) * weight;
+        Vector3d dn_dtheta = dnormal_dtheta(theta, phi);
 
-        jacobians[i*2+1][0] = w * sin(theta) * cos(phi) * weight;
-        jacobians[i*2+1][1] = -w * sin(phi) * weight;
-        jacobians[i*2+1][2] = w * cos(theta) * cos(phi) * weight;
+        // dF_dtheta
+        jacobians[i*2][0] = w * dn_dtheta[0] * weight;
+        jacobians[i*2][1] = w * dn_dtheta[1] * weight;
+        jacobians[i*2][2] = w * dn_dtheta[2] * weight;
+
+        Vector3d dn_dphi = dnormal_dphi(theta, phi);
+
+        // dF_dphi
+        jacobians[i*2+1][0] = w * dn_dphi[0] * weight;
+        jacobians[i*2+1][1] = w * dn_dphi[1] * weight;
+        jacobians[i*2+1][2] = w * dn_dphi[2] * weight;
       }
     }
 
@@ -408,6 +412,28 @@ struct NormalMapRegularizationTerm_analytic : public ceres::CostFunction {
 
   vector<pair<int, double>> info;
   Vector3d normal_ref_LoG;
+  double weight;
+};
+
+struct NormalMapAngleRegularizationTerm : public ceres::CostFunction {
+  NormalMapAngleRegularizationTerm(double weight) : weight(weight) {
+    mutable_parameter_block_sizes()->clear();
+    mutable_parameter_block_sizes()->push_back(1);
+    set_num_residuals(1);
+  }
+
+  virtual bool Evaluate(double const *const *parameters,
+                        double *residuals,
+                        double **jacobians) const {
+    residuals[0] = parameters[0][0] * weight;
+    if (jacobians != NULL) {
+      if( jacobians[0] != NULL ) {
+        jacobians[0][0] = weight;
+      }
+    }
+    return true;
+  }
+
   double weight;
 };
 
